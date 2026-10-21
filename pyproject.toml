@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Batch UTM campaign links with consistent slugs, validation, QR codes and a static index page"
 readme = "README.md"
 requires-python = ">=3.9"
+license = "MIT"
 authors = [{ name = "calasdan-sketch" }]
 keywords = ["utm", "campaign", "tracking", "qr", "marketing", "csv", "links"]
 classifiers = [
