@@ -45,10 +45,11 @@ def test_qr_with_fake_backend(tmp_path):
     assert os.path.exists(os.path.join(str(tmp_path / "out"), "n.png"))
 
 
-def test_qr_unavailable_warns_not_crashes(tmp_path):
+def test_qr_unavailable_warns_not_crashes(tmp_path, monkeypatch):
+    monkeypatch.setattr("utmkit.qr.default_backend", lambda: None)  # simulate qrcode absent
     spec = write_spec(tmp_path, [["https://ex.com", "ig", "social", "c", "n"]])
     result = run_batch(load_campaigns(spec), str(tmp_path / "out"), qr=True, qr_backend=None)
-    assert any(f.code == "qr_unavailable" for f in result.findings) or result.qr_written
+    assert any(f.code == "qr_unavailable" for f in result.findings)
 
 
 def test_html_index(tmp_path):

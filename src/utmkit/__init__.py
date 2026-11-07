@@ -2,5 +2,5 @@
 
 from .core import Campaign, Finding, build_url, slugify, validate_campaign
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = ["Campaign", "Finding", "build_url", "slugify", "validate_campaign", "__version__"]
