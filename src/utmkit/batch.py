@@ -6,11 +6,11 @@ import difflib
 import html
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import List, Optional, Tuple
 
 from .channels import ga4_channel
-from .core import (Campaign, Finding, build_url, sanitize, slugify,
+from .core import (Campaign, Finding, build_url, campaign_from_url, sanitize, slugify,
                    validate_campaign, validate_rows)
 from .taxonomy import Taxonomy, check_taxonomy, fix_campaign
 from .qr import Backend, QrUnavailable, get_backend
@@ -45,7 +45,7 @@ def load_spec(path: str) -> Tuple[List[tuple], List[Finding]]:
     try:
         with open(path, newline="", encoding="utf-8-sig") as fh:
             head = fh.readline()
-            delim = ";" if head.count(";") > head.count(",") else ","
+            delim = max((",", ";", "\t"), key=head.count)
             fh.seek(0)
             reader = csv.reader(fh, delimiter=delim)
             try:
@@ -78,6 +78,69 @@ def load_spec(path: str) -> Tuple[List[tuple], List[Finding]]:
     except UnicodeDecodeError:
         raise ValueError("spec CSV is not valid UTF-8 (re-save it as 'CSV UTF-8')") from None
     return out, findings
+
+
+def expand_campaigns(rows: List[tuple]) -> List[tuple]:
+    """Cartesian expansion of ``a|b`` cells in the utm columns (opt-in, ``--expand``).
+
+    ``source=instagram|facebook`` and ``content=a|b`` become four links; the ``name`` gets the
+    chosen values appended so slugs stay readable. Row numbers are kept (the spec row each link
+    came from). Raises ValueError rather than building more than MAX_ROWS links.
+    """
+    import itertools
+    out: List[tuple] = []
+    attrs = [a for _, a in _OUT_UTM]
+    for row_no, c in rows:
+        options = [[p.strip() for p in getattr(c, a).split("|")] if "|" in getattr(c, a)
+                   else [getattr(c, a)] for a in attrs]
+        total = 1
+        for o in options:
+            total *= len(o)
+        if total == 1:
+            out.append((row_no, c))
+            continue
+        if len(out) + total > MAX_ROWS:
+            raise ValueError(f"--expand would create more than {MAX_ROWS} links (row {row_no})")
+        for combo in itertools.product(*options):
+            vals = dict(zip(attrs, combo))
+            tail = "-".join(v for v, o in zip(combo, options) if len(o) > 1 and v)
+            name = f"{c.name} {tail}".strip() if c.name else ""
+            out.append((row_no, replace(c, name=name, **vals)))
+    return out
+
+
+def load_urls(path: str) -> Tuple[List[tuple], List[Finding]]:
+    """Read already-tagged URLs for auditing.
+
+    Either a spec CSV with a ``url`` column or a plain text file with one URL per line
+    (blank lines and ``#`` comments ignored). The utm_* values are read back out of each URL;
+    a spec column, when present and non-empty, wins over what the URL says.
+    """
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            first = next((ln.strip() for ln in fh if ln.strip() and not ln.lstrip().startswith("#")), "")
+    except UnicodeDecodeError:
+        raise ValueError("file is not valid UTF-8") from None
+    if not first:
+        raise ValueError("file is empty")
+    if "," not in first.split("://", 1)[0] and first.lower().startswith(("http://", "https://")):
+        out: List[tuple] = []
+        findings: List[Finding] = []
+        with open(path, encoding="utf-8-sig") as fh:
+            for i, line in enumerate(fh, start=1):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if len(out) >= MAX_ROWS:
+                    raise ValueError(f"file has more than {MAX_ROWS} URLs")
+                out.append((i, campaign_from_url(line)))
+        return out, findings
+    rows, findings = load_spec(path)
+    merged = []
+    for n, c in rows:
+        base = campaign_from_url(c.url, c.name)
+        merged.append((n, replace(base, **{a: getattr(c, a) for _, a in _OUT_UTM if getattr(c, a)})))
+    return merged, findings
 
 
 def load_campaigns(path: str) -> List[tuple]:
@@ -124,13 +187,17 @@ def run_batch(
     counters: dict = {}
     for row_no, campaign in campaigns:
         where = f"row {row_no}"
-        row_findings = validate_campaign(campaign, where=where, ga4=ga4)
+        try:
+            built = build_url(campaign) if campaign.url else None
+        except ValueError:
+            built = None
+        row_findings = validate_campaign(campaign, where=where, ga4=ga4, built=built)
         if taxonomy is not None:
             row_findings.extend(check_taxonomy(campaign, taxonomy, where))
         result.findings.extend(row_findings)
         if any(f.severity == "error" for f in row_findings):
             continue
-        url = build_url(campaign)
+        url = built if built is not None else build_url(campaign)
         base = slugify(campaign.name or (campaign.url + url))
         if base in taken:  # resume numbering instead of rescanning -2, -3 ... (O(1) amortised)
             n = counters.get(base, 2)

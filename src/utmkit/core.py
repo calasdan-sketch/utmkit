@@ -5,7 +5,7 @@ import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 UTM_KEYS = ("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
@@ -97,6 +97,16 @@ def existing_utm(url: str) -> Dict[str, str]:
     return out
 
 
+def campaign_from_url(url: str, name: str = "") -> Campaign:
+    """Read the managed utm_* values already inside a URL back into a Campaign (for auditing).
+
+    ``url`` keeps the whole original URL; a later ``build_url`` replaces the same keys with
+    the same values, so the result is the identical link.
+    """
+    old = existing_utm(url)
+    return Campaign(url=url, name=name, **{attr: old.get(key, "") for key, attr in _VALUES})
+
+
 def slugify(text: str, fallback: str = "link") -> str:
     """URL/filename-safe, lowercase, deterministic slug (<= 80 chars).
 
@@ -132,10 +142,12 @@ _VALUES = (("utm_source", "source"), ("utm_medium", "medium"), ("utm_campaign", 
            ("utm_creative_format", "creative_format"),
            ("utm_marketing_tactic", "marketing_tactic"))
 MAX_URL = 2000  # conservative cross-browser/ad-platform length (unverified per platform)
+_EMAIL = re.compile(r"[^@\s/=&]{1,64}@[^@\s/=&]{1,255}\.[A-Za-z]{2,}")
 _DANGEROUS = {"javascript", "data", "vbscript", "file", "blob", "about"}
 
 
-def validate_campaign(c: Campaign, where: str = "", ga4: bool = False) -> List[Finding]:
+def validate_campaign(c: Campaign, where: str = "", ga4: bool = False,
+                      built: Optional[str] = None) -> List[Finding]:
     """Flag the mistakes that silently wreck campaign data.
 
     ``ga4=True`` adds the GA4-specific checks (missing medium/campaign, channel
@@ -148,10 +160,24 @@ def validate_campaign(c: Campaign, where: str = "", ga4: bool = False) -> List[F
     if not c.url:
         out.append(Finding("error", "no_url", where, "row has no url"))
         return out
-    scheme = urlsplit(c.url).scheme.lower()
+    try:
+        scheme = urlsplit(c.url).scheme.lower()
+    except ValueError:  # e.g. "http://[::1" - urlsplit refuses it
+        out.append(Finding("error", "bad_host", where, "url is malformed (bad host brackets); row skipped"))
+        return out
     if scheme and scheme not in ("http", "https") and ("://" in c.url or scheme in _DANGEROUS):
         out.append(Finding("error", "bad_scheme", where,
                            f"url scheme {sanitize(scheme)!r} is not http/https; row skipped"))
+        return out
+    try:
+        sp = urlsplit(c.url)
+        sp.port  # noqa: B018 - raises ValueError for a non-numeric / out-of-range port
+        host_ok = bool(sp.hostname)
+    except ValueError:
+        host_ok = False
+    if scheme in ("http", "https") and not host_ok:
+        out.append(Finding("error", "bad_host", where,
+                           "url has no host or an invalid port; row skipped"))
         return out
     if has_unsafe(c.url) or " " in c.url.strip():
         out.append(Finding("error", "bad_url_chars", where,
@@ -182,6 +208,10 @@ def validate_campaign(c: Campaign, where: str = "", ga4: bool = False) -> List[F
         if " " in value:
             out.append(Finding("warn", "has_spaces", where,
                                f"{key}={value!r} has spaces; prefer dashes"))
+        if _EMAIL.search(unquote(value)):
+            out.append(Finding("warn", "pii_email", where,
+                               f"{key} looks like an email address; analytics terms forbid "
+                               "personal data in URLs and it ends up in reports and logs"))
         if re.search(r"%[0-9a-fA-F]{2}", value):
             out.append(Finding("warn", "pre_encoded", where,
                                f"{key}={value!r} looks already percent-encoded; it would be encoded twice"))
@@ -205,7 +235,7 @@ def validate_campaign(c: Campaign, where: str = "", ga4: bool = False) -> List[F
             out.append(Finding("warn", "overrides_existing", where,
                                f"url already has {k}={sanitize(v)!r}; replaced by {sanitize(new[k])!r}"))
     try:
-        if len(build_url(c)) > MAX_URL:
+        if len(built if built is not None else build_url(c)) > MAX_URL:
             out.append(Finding("warn", "url_too_long", where,
                                f"final URL exceeds {MAX_URL} characters; some platforms truncate"))
     except ValueError:

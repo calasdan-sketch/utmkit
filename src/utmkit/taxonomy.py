@@ -25,7 +25,132 @@ from .core import Campaign, Finding, sanitize
 FIELDS = ("source", "medium", "campaign", "term", "content", "id",
           "source_platform", "creative_format", "marketing_tactic")
 _RULE_KEYS = {"allowed", "aliases", "pattern", "max_length"}
-MAX_CHECK_LEN = 500  # never run a user regex over longer values (ReDoS guard)
+MAX_CHECK_LEN = 200  # never run a user regex over longer values (ReDoS guard)
+MAX_PATTERN_LEN = 300
+try:  # Python 3.11+ moved the regex parser
+    from re import _parser as _sre  # type: ignore[attr-defined]
+    from re import _constants as _sre_c  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - older Pythons
+    import sre_parse as _sre  # type: ignore[no-redef]
+    import sre_constants as _sre_c  # type: ignore[no-redef]
+_REPEATS = (_sre_c.MAX_REPEAT, _sre_c.MIN_REPEAT)
+_UNBOUNDED = 8  # a repeat with a larger upper bound counts as unbounded
+
+
+def _is_repeat(op) -> bool:
+    return op in _REPEATS or str(op) == "POSSESSIVE_REPEAT"
+
+
+def _matches(item, ch: int) -> bool:
+    """Can this single regex item match character code ``ch``? (conservative: unknown -> True)"""
+    op, av = item
+    if op == _sre_c.LITERAL:
+        return av == ch
+    if op == _sre_c.IN:
+        neg = any(o == _sre_c.NEGATE for o, _ in av)
+        hit = False
+        for o, v in av:
+            if o == _sre_c.LITERAL and v == ch:
+                hit = True
+            elif o == _sre_c.RANGE and v[0] <= ch <= v[1]:
+                hit = True
+            elif o == _sre_c.CATEGORY:
+                hit = True  # \d \w ... : be conservative
+        return (not hit) if neg else hit
+    return True
+
+
+def _delimited(sub) -> bool:
+    """Repeat body like ``-[a-z]+``: starts with a literal that its own repeats cannot match."""
+    while len(sub) == 1 and sub[0][0] == _sre_c.SUBPATTERN:
+        sub = sub[0][1][-1]
+    if not sub or sub[0][0] != _sre_c.LITERAL:
+        return False
+    lit = sub[0][1]
+    for op, av in list(sub)[1:]:
+        if op in (_sre_c.BRANCH, _sre_c.SUBPATTERN):
+            return False
+        if _is_repeat(op) and not all(not _matches(i, lit) for i in av[2]):
+            return False
+    return True
+
+
+def _charset(body):
+    """ASCII chars a single-item repeat body can match, or None when it is more complex."""
+    body = list(body)
+    if len(body) != 1 or body[0][0] not in (_sre_c.LITERAL, _sre_c.IN, _sre_c.ANY):
+        return None
+    return {ch for ch in range(128) if _matches(body[0], ch)}
+
+
+def _too_many_overlapping(items) -> bool:
+    """Three+ unbounded repeats over overlapping characters with no separator: O(n^3) backtracking."""
+    group = []  # charsets (None = unknown, treated as overlapping everything)
+    for op, av in items:
+        if _is_repeat(op) and av[1] > _UNBOUNDED:
+            cs = _charset(av[2])
+            if group and all(g is not None and cs is not None and not (g & cs) for g in group):
+                group = []  # disjoint classes (e.g. [a-z]+[0-9]+) cannot trade characters
+            group = [g for g in group if g is None or cs is None or (g & cs)] + [cs]
+            if len(group) >= 3:
+                return True
+        elif op == _sre_c.LITERAL:
+            group = [g for g in group if g is None or chr(av) in {chr(c) for c in g}]
+        elif op not in _REPEATS and not _is_repeat(op):
+            group = []
+    return False
+
+
+def _walk(items, in_repeat: bool) -> bool:
+    """True if a variable repeat sits inside another large repeat (catastrophic backtracking)."""
+    if _too_many_overlapping(items):
+        return True
+    for op, av in items:
+        if _is_repeat(op):
+            lo, hi, sub = av
+            big = hi > _UNBOUNDED
+            variable = lo != hi
+            if in_repeat and variable:
+                return True
+            nested = in_repeat or big
+            if big and _delimited(sub):
+                nested = in_repeat  # delimiter-separated: linear, not exponential
+            if _walk(sub, nested):
+                return True
+        elif op == _sre_c.SUBPATTERN:
+            if _walk(av[-1], in_repeat):
+                return True
+        elif op == _sre_c.BRANCH:
+            if in_repeat and _overlapping_branch(av[1]):
+                return True
+            if any(_walk(b, in_repeat) for b in av[1]):
+                return True
+        elif op in (_sre_c.ASSERT, _sre_c.ASSERT_NOT):
+            if _walk(av[1], in_repeat):
+                return True
+    return False
+
+
+def _first(items):
+    for op, av in items:
+        if op == _sre_c.LITERAL:
+            return av
+        break
+    return None
+
+
+def _overlapping_branch(branches) -> bool:
+    """(a|ab)* style alternation: two branches that start with the same literal (or none)."""
+    firsts = [_first(b) for b in branches]
+    return len(set(firsts)) < len(firsts) or any(f is None for f in firsts)
+
+
+def safe_pattern(pattern: str) -> bool:
+    """Reject patterns that can backtrack exponentially on a short value (nested unbounded repeats)."""
+    try:
+        return len(pattern) <= MAX_PATTERN_LEN and not _walk(_sre.parse(pattern), False)
+    except Exception:
+        return False
 
 
 @dataclass
@@ -71,6 +196,10 @@ def parse_taxonomy(data: object) -> Taxonomy:
             fr.aliases = {k.lower(): v for k, v in al.items()}
         if "pattern" in rule:
             try:
+                if not safe_pattern(rule["pattern"]):
+                    raise ValueError(
+                        f"field {name!r}: pattern is too long (>{MAX_PATTERN_LEN}) or has nested "
+                        "repeats like (a+)+ that can hang the checker; simplify it")
                 fr.pattern = re.compile(rule["pattern"])
             except (re.error, TypeError) as e:
                 raise ValueError(f"field {name!r}: bad pattern: {e}") from None
@@ -137,3 +266,40 @@ def check_taxonomy(c: Campaign, tax: Taxonomy, where: str) -> List[Finding]:
                 out.append(Finding("error", "taxonomy_pattern", where,
                                    f"{f}={sanitize(v[:80])!r} does not match /{rule.pattern.pattern}/"))
     return out
+
+
+def suggest_taxonomy(campaigns, max_allowed: int = 50) -> dict:
+    """Starter rules from existing links: the spellings you already use become the allowed list.
+
+    Spellings that differ only by case/punctuation (``Instagram``/``instagram``/``insta-gram``)
+    collapse to the most common one (ties: shortest, then alphabetical) and the rest become
+    aliases, so ``--fix`` can repair them. Review the result before enforcing it.
+    """
+    from collections import Counter
+    from .core import _canon
+
+    fields: dict = {}
+    for f in ("source", "medium"):
+        counts: Counter = Counter()
+        for _, c in campaigns:
+            v = normalize_value(getattr(c, f))
+            if v:
+                counts[v] += 1
+        groups: dict = {}
+        for v, n in counts.items():
+            groups.setdefault(_canon(v), []).append((-n, len(v), v))
+        allowed, aliases = [], {}
+        for forms in groups.values():
+            forms.sort()
+            best = forms[0][2]
+            allowed.append(best)
+            aliases.update({v: best for _, _, v in forms[1:]})
+        if 0 < len(allowed) <= max_allowed:
+            rule: dict = {"allowed": sorted(allowed)}
+            if aliases:
+                rule["aliases"] = dict(sorted(aliases.items()))
+            fields[f] = rule
+    longest = max((len(c.campaign) for _, c in campaigns), default=0)
+    if longest:
+        fields["campaign"] = {"max_length": max(40, longest)}
+    return {"fields": fields, "required": ["source", "medium", "campaign"]}
