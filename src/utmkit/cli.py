@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 from . import __version__
 from .batch import load_campaigns, run_batch, write_csv
-from .core import Campaign, build_url, load_rules, normalize, validate_campaign
+from .core import (Campaign, Finding, build_url, campaign_from_url, load_rules, normalize,
+                   validate_campaign)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,12 +44,33 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--strict", action="store_true")
     v.add_argument("--rules", metavar="JSON", help="JSON allow-list: source/medium lists, campaign_pattern regex")
 
+    pa = sub.add_parser("parse", help="decode and check an existing tagged URL")
+    pa.add_argument("url")
+    pa.add_argument("--json", action="store_true")
+    pa.add_argument("--rules", metavar="JSON", help="JSON allow-list: source/medium lists, campaign_pattern regex")
+
     args = ap.parse_args(argv)
     try:
         rules = load_rules(args.rules) if args.rules else None
     except ValueError as e:
         print(f"utmkit: {e}", file=sys.stderr)
         return 2
+
+    if args.cmd == "parse":
+        campaign = campaign_from_url(args.url)
+        findings = validate_campaign(campaign, where="parse", rules=rules)
+        if campaign.url and not campaign.campaign:   # auditing someone else's link: say it's missing
+            findings.append(Finding("warn", "no_campaign", "parse", "utm_campaign is missing"))
+        if args.json:
+            print(json.dumps({"url": campaign.url, "utm": campaign.utm(),
+                              "findings": [vars(f) for f in findings]}, indent=2))
+        else:
+            print(f"url: {campaign.url}")
+            for key, value in campaign.utm().items():
+                print(f"{key}: {value}")
+            for f in findings:
+                print(f"{f.severity.upper():5} {f.code}: {f.detail}")
+        return 1 if any(f.severity == "error" for f in findings) else 0
 
     if args.cmd == "gen":
         campaign = Campaign(url=args.url, source=args.source, medium=args.medium,

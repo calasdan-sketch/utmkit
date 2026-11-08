@@ -166,3 +166,18 @@ def validate_campaign(c: Campaign, where: str = "", rules: Optional[dict] = None
     if c.url and not c.url.lower().startswith(("http://", "https://")):
         out.append(Finding("warn", "no_scheme", where, f"url {c.url!r} has no http(s) scheme"))
     return out
+
+
+def campaign_from_url(url: str) -> Campaign:
+    """Split a tagged URL back into a Campaign (the inverse of build_url).
+
+    The five standard UTM keys become fields; every other param stays on ``url``.
+    """
+    parts = urlsplit(url)
+    pairs = parse_qsl(parts.query, keep_blank_values=True)
+    utm = {k.lower(): v for k, v in pairs if k.lower() in UTM_KEYS}
+    rest = [(k, v) for k, v in pairs if k.lower() not in UTM_KEYS]
+    base = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(rest), parts.fragment))
+    return Campaign(url=base, source=utm.get("utm_source", ""), medium=utm.get("utm_medium", ""),
+                    campaign=utm.get("utm_campaign", ""), term=utm.get("utm_term", ""),
+                    content=utm.get("utm_content", ""))

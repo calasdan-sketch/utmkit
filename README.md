@@ -47,6 +47,19 @@ Produces `out/links.csv` (slug, final URL, QR filename), one QR PNG per row when
 
 Warnings don't fail the build unless `--strict`. In `batch`, a row with an error is reported and skipped (no link built) and the run exits 1.
 
+## Audit an existing link
+
+```bash
+utmkit parse "https://x.com/?utm_source=IG&utm_medium=social"
+# url: https://x.com/
+# utm_source: IG
+# utm_medium: social
+# WARN  not_lowercase: utm_source='IG' should be lowercase (analytics tools split cases)
+# WARN  no_campaign: utm_campaign is missing
+```
+
+Splits a tagged URL someone else made into its base URL and UTM values, then runs the same checks as `validate` (plus `--rules` if given). `parse` also warns when `utm_campaign` is missing (`gen`/`batch` don't). Exit 1 on an error such as a missing `utm_source`; `--json` for automation.
+
 ## Naming rules (allow-list)
 
 Lock the values your team may use, so nobody invents `Insta` next to `instagram`:

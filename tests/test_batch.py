@@ -161,3 +161,17 @@ def test_rules_file_allow_list(tmp_path, capsys):
     rules.write_text('{"campaign_pattern": "("}', encoding="utf-8")             # bad regex
     assert main(["validate", spec, "--rules", str(rules)]) == 2
     assert main(["validate", spec, "--rules", str(tmp_path / "missing.json")]) == 2
+
+
+def test_parse_existing_url(capsys):
+    import json
+    url = "https://x.com/?utm_source=IG&utm_medium=social"
+    assert main(["parse", url]) == 0
+    out = capsys.readouterr().out
+    assert "utm_source: IG" in out and "not_lowercase" in out and "no_campaign" in out
+    assert main(["parse", url, "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["url"] == "https://x.com/" and data["utm"]["utm_source"] == "IG"
+    codes = {(f["severity"], f["code"]) for f in data["findings"]}
+    assert ("warn", "not_lowercase") in codes and ("warn", "no_campaign") in codes
+    assert main(["parse", "https://x.com/?id=7"]) == 1                    # no utm_source: error
