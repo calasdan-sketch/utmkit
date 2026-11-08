@@ -6,7 +6,7 @@ import sys
 
 from . import __version__
 from .batch import load_campaigns, run_batch, write_csv
-from .core import Campaign, build_url, normalize, validate_campaign
+from .core import Campaign, build_url, load_rules, normalize, validate_campaign
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,6 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--content", default="")
     g.add_argument("--qr", metavar="PNG", help="also write a QR code to this path")
     g.add_argument("--fix", action="store_true", help="lowercase, trim, spaces to '-' in UTM values")
+    g.add_argument("--rules", metavar="JSON", help="JSON allow-list: source/medium lists, campaign_pattern regex")
 
     b = sub.add_parser("batch", help="build many tracked URLs from a CSV spec")
     b.add_argument("spec", help="CSV with columns: url, source, medium, campaign[, term, content, name]")
@@ -34,12 +35,19 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--html", action="store_true", help="also write index.html linking everything")
     b.add_argument("--strict", action="store_true", help="validation warnings exit non-zero")
     b.add_argument("--fix", action="store_true", help="lowercase, trim, spaces to '-' in UTM values")
+    b.add_argument("--rules", metavar="JSON", help="JSON allow-list: source/medium lists, campaign_pattern regex")
 
     v = sub.add_parser("validate", help="check a spec CSV without building anything")
     v.add_argument("spec")
     v.add_argument("--strict", action="store_true")
+    v.add_argument("--rules", metavar="JSON", help="JSON allow-list: source/medium lists, campaign_pattern regex")
 
     args = ap.parse_args(argv)
+    try:
+        rules = load_rules(args.rules) if args.rules else None
+    except ValueError as e:
+        print(f"utmkit: {e}", file=sys.stderr)
+        return 2
 
     if args.cmd == "gen":
         campaign = Campaign(url=args.url, source=args.source, medium=args.medium,
@@ -47,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         fixed = []
         if args.fix:
             campaign, fixed = normalize(campaign, where="gen")
-        findings = fixed + validate_campaign(campaign, where="gen")
+        findings = fixed + validate_campaign(campaign, where="gen", rules=rules)
         errors = [f for f in findings if f.severity == "error"]
         for f in findings:
             print(f"{f.severity.upper():5} {f.code}: {f.detail}", file=sys.stderr)
@@ -72,14 +80,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.cmd == "validate":
-        findings = [f for row, c in campaigns for f in validate_campaign(c, where=f"row {row}")]
+        findings = [f for row, c in campaigns for f in validate_campaign(c, where=f"row {row}", rules=rules)]
         for f in findings:
             print(f"{f.severity.upper():5} {f.where}: {f.code}: {f.detail}")
         print(f"{len(findings)} finding(s)")
         return 1 if any(f.severity == "error" for f in findings) or (args.strict and findings) else 0
 
     result = run_batch(campaigns, out_dir=args.out_dir, qr=args.qr, html_index=args.html,
-                       fix=args.fix)
+                       fix=args.fix, rules=rules)
     out_csv = f"{args.out_dir}/links.csv"
     write_csv(result, out_csv)
     errors = [f for f in result.findings if f.severity == "error"]

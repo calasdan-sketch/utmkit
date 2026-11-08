@@ -48,6 +48,7 @@ def run_batch(
     html_index: bool = False,
     qr_backend: Optional[Backend] = None,
     fix: bool = False,
+    rules: Optional[dict] = None,
 ) -> BatchResult:
     result = BatchResult()
     os.makedirs(out_dir, exist_ok=True)
@@ -64,7 +65,7 @@ def run_batch(
         if fix:
             campaign, fixed = normalize(campaign, where=where)
             result.findings.extend(fixed)
-        row_findings = validate_campaign(campaign, where=where)
+        row_findings = validate_campaign(campaign, where=where, rules=rules)
         result.findings.extend(row_findings)
         if any(f.severity == "error" for f in row_findings):
             continue                      # reported above; don't build a broken link (or crash on no url)

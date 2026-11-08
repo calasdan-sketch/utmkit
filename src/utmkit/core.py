@@ -1,6 +1,7 @@
 """UTM link building, deterministic slugs and campaign validation."""
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from dataclasses import dataclass, field, replace
@@ -95,8 +96,43 @@ def unique_slug(base: str, taken: List[str]) -> str:
     return f"{base}-{n}"
 
 
-def validate_campaign(c: Campaign, where: str = "") -> List[Finding]:
-    """Flag the mistakes that silently wreck campaign data."""
+def load_rules(path: str) -> dict:
+    """Read a rules JSON: optional "source"/"medium" allow-lists and a "campaign_pattern" regex.
+
+    Raises ValueError with a readable message for a missing file, bad JSON or wrong shapes.
+    """
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            rules = json.load(fh)
+    except FileNotFoundError:
+        raise ValueError(f"rules file not found: {path}") from None
+    except json.JSONDecodeError as e:
+        raise ValueError(f"rules file {path} is not valid JSON: {e}") from None
+    if not isinstance(rules, dict):
+        raise ValueError("rules file must hold a JSON object")
+    unknown = set(rules) - {"source", "medium", "campaign_pattern"}
+    if unknown:
+        raise ValueError(f"unknown rules key(s): {', '.join(sorted(unknown))}")
+    for key in ("source", "medium"):
+        if key in rules and not (isinstance(rules[key], list)
+                                 and all(isinstance(v, str) for v in rules[key])):
+            raise ValueError(f"rules '{key}' must be a list of strings")
+    if "campaign_pattern" in rules:
+        if not isinstance(rules["campaign_pattern"], str):
+            raise ValueError("rules 'campaign_pattern' must be a string")
+        try:
+            re.compile(rules["campaign_pattern"])
+        except re.error as e:
+            raise ValueError(f"rules 'campaign_pattern' is not a valid regex: {e}") from None
+    return rules
+
+
+def validate_campaign(c: Campaign, where: str = "", rules: Optional[dict] = None) -> List[Finding]:
+    """Flag the mistakes that silently wreck campaign data.
+
+    ``rules`` (see load_rules) turn values outside the allow-lists into errors.
+    """
+    rules = rules or {}
     out: List[Finding] = []
     where = where or c.name or c.url
     if not c.url:
@@ -113,8 +149,17 @@ def validate_campaign(c: Campaign, where: str = "") -> List[Finding]:
         if " " in value:
             out.append(Finding("warn", "has_spaces", where,
                                f"{key}={value!r} has spaces; prefer dashes"))
-    if c.medium and c.medium not in ("email", "social", "cpc", "ppc", "affiliate",
-                                     "organic", "referral", "display", "qr", "print"):
+    for key, value in (("source", c.source), ("medium", c.medium)):
+        if value and key in rules and value not in rules[key]:
+            out.append(Finding("error", "not_allowed", where,
+                               f"utm_{key}={value!r} is not in the rules list {rules[key]}"))
+    pattern = rules.get("campaign_pattern")
+    if c.campaign and pattern and not re.search(pattern, c.campaign):
+        out.append(Finding("error", "not_allowed", where,
+                           f"utm_campaign={c.campaign!r} does not match {pattern!r}"))
+    if "medium" not in rules and c.medium and c.medium not in (
+            "email", "social", "cpc", "ppc", "affiliate",
+            "organic", "referral", "display", "qr", "print"):
         out.append(Finding("warn", "unusual_medium", where,
                            f"utm_medium={c.medium!r} is not a common value "
                            "(email/social/cpc/...): fine if intentional"))

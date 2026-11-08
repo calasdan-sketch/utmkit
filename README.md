@@ -47,6 +47,22 @@ Produces `out/links.csv` (slug, final URL, QR filename), one QR PNG per row when
 
 Warnings don't fail the build unless `--strict`. In `batch`, a row with an error is reported and skipped (no link built) and the run exits 1.
 
+## Naming rules (allow-list)
+
+Lock the values your team may use, so nobody invents `Insta` next to `instagram`:
+
+```json
+{"source": ["instagram", "facebook"], "medium": ["social", "email", "cpc", "qr"], "campaign_pattern": "^[a-z0-9-]+$"}
+```
+
+```bash
+utmkit validate spec.csv --rules rules.json      # also on gen and batch
+```
+
+All three keys are optional. A `source` or `medium` outside its list, or a `campaign` that doesn't match the regex, is an **error** (`not_allowed`): the row is skipped in `batch` and the run exits 1. When you give a `medium` list, it replaces the built-in "unusual medium" warning. A missing or malformed rules file (bad JSON, a list that isn't a list of strings, an invalid regex, an unknown key) exits 2 with a message. Use `--fix` together with `--rules` to lowercase values before they are checked.
+
+utmkit builds links; it doesn't track clicks. Pair it with your analytics tool.
+
 ## Design notes
 
 - **Deterministic slugs**: the `name` column (else the final tagged URL) becomes the filename slug; collisions get `-2`, `-3` suffixes — same input, same output names, every run.

@@ -85,3 +85,11 @@ def test_normalize_fixes_case_space_and_reports_changes():
     assert len(findings) == 1 and findings[0].severity == "info" and findings[0].code == "fixed"
     assert "Instagram Ads" in findings[0].detail and "instagram-ads" in findings[0].detail
     assert validate_campaign(c) == []
+
+
+def test_validate_with_rules():
+    rules = {"medium": ["social"], "source": ["ig"]}
+    f = validate_campaign(Campaign("https://x.com", source="fb", medium="teleport"), rules=rules)
+    codes = [(x.severity, x.code) for x in f]
+    assert codes.count(("error", "not_allowed")) == 2
+    assert ("warn", "unusual_medium") not in codes      # the allow-list replaces the generic list

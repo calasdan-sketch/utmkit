@@ -136,3 +136,28 @@ def test_duplicate_final_url_warns(tmp_path, capsys):
     assert "row 2" in dups[0].detail and dups[0].where == "row 4"
     assert main(["batch", spec, "--out-dir", str(tmp_path / "o")]) == 0
     assert main(["batch", spec, "--out-dir", str(tmp_path / "o"), "--strict"]) == 1
+
+
+RULES = {"source": ["instagram", "facebook"], "medium": ["social", "email", "cpc", "qr"],
+         "campaign_pattern": "^[a-z0-9-]+$"}
+
+
+def test_rules_file_allow_list(tmp_path, capsys):
+    import json
+    rules = tmp_path / "rules.json"
+    rules.write_text(json.dumps(RULES), encoding="utf-8")
+    spec = write_spec(tmp_path, [["https://ex.com/a", "instagram", "Social-Media", "launch", "One"]])
+    assert main(["validate", spec, "--rules", str(rules)]) == 1
+    assert "not_allowed" in capsys.readouterr().out
+    assert main(["batch", spec, "--out-dir", str(tmp_path / "o"), "--rules", str(rules)]) == 1
+    assert main(["gen", "https://ex.com", "--source", "instagram", "--medium", "social",
+                 "--campaign", "Spring Sale", "--rules", str(rules)]) == 1     # campaign pattern
+    assert main(["gen", "https://ex.com", "--source", "facebook", "--medium", "cpc",
+                 "--campaign", "spring-sale", "--rules", str(rules)]) == 0
+    rules.write_text("{not json", encoding="utf-8")
+    assert main(["validate", spec, "--rules", str(rules)]) == 2
+    rules.write_text('{"medium": "social"}', encoding="utf-8")                  # must be a list
+    assert main(["validate", spec, "--rules", str(rules)]) == 2
+    rules.write_text('{"campaign_pattern": "("}', encoding="utf-8")             # bad regex
+    assert main(["validate", spec, "--rules", str(rules)]) == 2
+    assert main(["validate", spec, "--rules", str(tmp_path / "missing.json")]) == 2
