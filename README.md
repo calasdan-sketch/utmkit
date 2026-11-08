@@ -17,6 +17,7 @@ utmkit gen https://calasautomations.com/onfile \
 # https://calasautomations.com/onfile?utm_source=instagram&utm_medium=social&utm_campaign=launch26
 
 utmkit gen ... --qr launch26-ig.png    # QR for the same URL (needs [qr] extra)
+utmkit gen ... --qr launch26-ig.svg    # vector SVG for print: needs only the qrcode package, no Pillow
 ```
 
 ## Batch
@@ -33,7 +34,7 @@ https://calasautomations.com/quote,newsletter,email,launch26,Quote Nudge
 utmkit batch spec.csv --out-dir out/ --qr --html
 ```
 
-Produces `out/links.csv` (slug, final URL, QR filename), one QR PNG per row when enabled, and `out/index.html` — a table of every link with clickable URLs and QR images.
+Produces `out/links.csv` (slug, final URL, QR filename), one QR code per row when enabled (PNG, or vector SVG with `--qr-format svg`), and `out/index.html` — a table of every link with clickable URLs and QR images.
 
 ## Validation
 
@@ -80,7 +81,7 @@ utmkit builds links; it doesn't track clicks. Pair it with your analytics tool.
 
 - **Deterministic slugs**: the `name` column (else the final tagged URL) becomes the filename slug; collisions get `-2`, `-3` suffixes — same input, same output names, every run.
 - **Existing params survive**: `?id=7&ref=nav` stays intact; stale values for the five standard keys (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`) are replaced by the campaign (the campaign is the source of truth); other params such as `utm_id` are kept.
-- **QR is optional**: the core has zero dependencies; `qrcode` is only imported when you pass `--qr` and installs via the `[qr]` extra. Custom backends can be injected through the Python API.
+- **QR is optional**: the core has zero dependencies; `qrcode` is only imported when you pass `--qr` and installs via the `[qr]` extra. PNG needs Pillow (the extra pulls it in); SVG output uses qrcode's own SVG writer and works without Pillow. Custom backends can be injected through the Python API.
 - **Static `index.html`**: host it, print it, or hand it to whoever is running the campaign — no JS, no build step.
 
 ## Python API

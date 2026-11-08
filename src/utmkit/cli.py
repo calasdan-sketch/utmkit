@@ -26,14 +26,16 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--campaign", default="")
     g.add_argument("--term", default="")
     g.add_argument("--content", default="")
-    g.add_argument("--qr", metavar="PNG", help="also write a QR code to this path")
+    g.add_argument("--qr", metavar="PATH", help="also write a QR code here (.svg = vector, else PNG)")
     g.add_argument("--fix", action="store_true", help="lowercase, trim, spaces to '-' in UTM values")
     g.add_argument("--rules", metavar="JSON", help="JSON allow-list: source/medium lists, campaign_pattern regex")
 
     b = sub.add_parser("batch", help="build many tracked URLs from a CSV spec")
     b.add_argument("spec", help="CSV with columns: url, source, medium, campaign[, term, content, name]")
     b.add_argument("--out-dir", default="utmkit-out")
-    b.add_argument("--qr", action="store_true", help="write QR PNGs (needs utmkit[qr])")
+    b.add_argument("--qr", action="store_true", help="write QR codes (needs utmkit[qr])")
+    b.add_argument("--qr-format", choices=["png", "svg"], default="png",
+                   help="svg is vector/print-ready and needs no Pillow")
     b.add_argument("--html", action="store_true", help="also write index.html linking everything")
     b.add_argument("--strict", action="store_true", help="validation warnings exit non-zero")
     b.add_argument("--fix", action="store_true", help="lowercase, trim, spaces to '-' in UTM values")
@@ -110,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if any(f.severity == "error" for f in findings) or (args.strict and findings) else 0
 
     result = run_batch(campaigns, out_dir=args.out_dir, qr=args.qr, html_index=args.html,
-                       fix=args.fix, rules=rules)
+                       fix=args.fix, rules=rules, qr_format=args.qr_format)
     out_csv = f"{args.out_dir}/links.csv"
     write_csv(result, out_csv)
     errors = [f for f in result.findings if f.severity == "error"]

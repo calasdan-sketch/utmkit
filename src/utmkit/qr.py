@@ -22,7 +22,11 @@ def default_backend() -> Optional[Backend]:
         return None
 
     def render(data: str, out_path: str) -> None:
-        img = qrcode.make(data)
+        if out_path.lower().endswith(".svg"):    # vector, print-ready; needs no Pillow
+            from qrcode.image.svg import SvgPathImage  # type: ignore
+            img = qrcode.make(data, image_factory=SvgPathImage)
+        else:
+            img = qrcode.make(data)               # PNG via Pillow (the [qr] extra)
         img.save(out_path)
 
     return render

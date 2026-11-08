@@ -49,6 +49,7 @@ def run_batch(
     qr_backend: Optional[Backend] = None,
     fix: bool = False,
     rules: Optional[dict] = None,
+    qr_format: str = "png",
 ) -> BatchResult:
     result = BatchResult()
     os.makedirs(out_dir, exist_ok=True)
@@ -80,7 +81,7 @@ def run_batch(
         taken.append(slug)
         entry = {"slug": slug, "url": campaign.url, "final_url": url, "qr": ""}
         if backend is not None:
-            qr_path = os.path.join(out_dir, f"{slug}.png")
+            qr_path = os.path.join(out_dir, f"{slug}.{qr_format}")
             try:
                 backend(url, qr_path)
                 entry["qr"] = os.path.basename(qr_path)

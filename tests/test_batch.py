@@ -175,3 +175,25 @@ def test_parse_existing_url(capsys):
     codes = {(f["severity"], f["code"]) for f in data["findings"]}
     assert ("warn", "not_lowercase") in codes and ("warn", "no_campaign") in codes
     assert main(["parse", "https://x.com/?id=7"]) == 1                    # no utm_source: error
+
+
+def test_batch_qr_format_svg_names_files_svg(tmp_path):
+    paths = []
+
+    def fake_backend(data, path):
+        paths.append(path)
+        open(path, "w").close()
+
+    spec = write_spec(tmp_path, [["https://ex.com", "ig", "social", "c", "n"]])
+    result = run_batch(load_campaigns(spec), str(tmp_path / "out"), qr=True,
+                       qr_backend=fake_backend, qr_format="svg")
+    assert paths[0].endswith("n.svg") and result.rows[0]["qr"] == "n.svg"
+
+
+def test_real_svg_qr_needs_no_pillow(tmp_path, capsys):
+    import pytest
+    pytest.importorskip("qrcode")
+    out = tmp_path / "x.svg"
+    assert main(["gen", "https://ex.com", "--source", "ig", "--qr", str(out)]) == 0
+    head = out.read_text(encoding="utf-8").lstrip()[:5]
+    assert head in ("<?xml", "<svg ") or head.startswith("<svg")
