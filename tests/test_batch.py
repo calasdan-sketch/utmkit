@@ -125,3 +125,14 @@ def test_fix_flag_on_gen_and_batch(tmp_path, capsys):
     assert main(["batch", spec, "--out-dir", str(tmp_path / "o"), "--fix", "--strict"]) == 0
     rows = list(csv.DictReader(open(tmp_path / "o" / "links.csv", encoding="utf-8")))
     assert "utm_source=instagram-ads&utm_medium=social" in rows[0]["final_url"]
+
+
+def test_duplicate_final_url_warns(tmp_path, capsys):
+    row = ["https://ex.com/a", "ig", "social", "launch", "One"]
+    spec = write_spec(tmp_path, [row, ["https://ex.com/b", "ig", "social", "launch", "Two"], row])
+    result = run_batch(load_campaigns(spec), str(tmp_path / "o"))
+    dups = [f for f in result.findings if f.code == "duplicate_url"]
+    assert len(dups) == 1 and dups[0].severity == "warn"
+    assert "row 2" in dups[0].detail and dups[0].where == "row 4"
+    assert main(["batch", spec, "--out-dir", str(tmp_path / "o")]) == 0
+    assert main(["batch", spec, "--out-dir", str(tmp_path / "o"), "--strict"]) == 1

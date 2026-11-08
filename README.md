@@ -40,6 +40,7 @@ Produces `out/links.csv` (slug, final URL, QR filename), one QR PNG per row when
 `utmkit validate spec.csv` flags the classics without building anything:
 
 - **error** — missing `utm_source`, empty URL
+- **warn** (`batch` only) — `duplicate_url`: two rows build the exact same final URL, so their clicks can't be told apart in analytics; the warning names both rows
 - **warn** — uppercase values (analytics tools split `Instagram` from `instagram`), spaces in values, unusual `utm_medium` values, URLs without a scheme
 
 `--fix` on `gen` and `batch` cleans the five UTM values before validation: lowercase, trim, and inner spaces to `-` (`" Instagram Ads "` becomes `instagram-ads`). Each change is reported as an `info` finding naming the old and new value. Without `--fix`, nothing is changed.

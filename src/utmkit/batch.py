@@ -58,6 +58,7 @@ def run_batch(
         except QrUnavailable as e:
             result.findings.append(Finding("warn", "qr_unavailable", "", str(e)))
     taken: List[str] = []
+    seen: dict = {}                       # final_url -> first row number
     for row_no, campaign in campaigns:
         where = f"row {row_no}"
         if fix:
@@ -68,6 +69,11 @@ def run_batch(
         if any(f.severity == "error" for f in row_findings):
             continue                      # reported above; don't build a broken link (or crash on no url)
         url = build_url(campaign)
+        if url in seen:                   # same tracked link twice: clicks can't be told apart
+            result.findings.append(Finding("warn", "duplicate_url", where,
+                                           f"same final URL as row {seen[url]}: {url}"))
+        else:
+            seen[url] = row_no
         base = slugify(campaign.name or url)
         slug = unique_slug(base, taken)
         taken.append(slug)
