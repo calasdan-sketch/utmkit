@@ -76,3 +76,12 @@ def test_validate_known_mediums_quiet():
 def test_non_standard_utm_params_survive():
     url = build_url(Campaign("https://ex.com/?utm_id=42&utm_source=old", source="new"))
     assert "utm_id=42" in url and "utm_source=new" in url and "old" not in url
+
+
+def test_normalize_fixes_case_space_and_reports_changes():
+    from utmkit.core import normalize
+    c, findings = normalize(Campaign("https://x.com", source=" Instagram Ads ", medium="social"), where="gen")
+    assert c.source == "instagram-ads" and c.medium == "social"
+    assert len(findings) == 1 and findings[0].severity == "info" and findings[0].code == "fixed"
+    assert "Instagram Ads" in findings[0].detail and "instagram-ads" in findings[0].detail
+    assert validate_campaign(c) == []

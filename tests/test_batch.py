@@ -112,3 +112,16 @@ def test_html_index_never_links_non_http_urls(tmp_path):
     main(["batch", spec, "--out-dir", str(out), "--html"])
     page = (out / "index.html").read_text(encoding="utf-8")
     assert "href='javascript" not in page and "javascript:alert(1)" in page
+
+
+def test_fix_flag_on_gen_and_batch(tmp_path, capsys):
+    assert main(["gen", "https://ex.com", "--source", " Instagram Ads ", "--fix"]) == 0
+    out, err = capsys.readouterr()
+    assert "utm_source=instagram-ads" in out and "INFO" in err and "fixed" in err
+    assert main(["gen", "https://ex.com", "--source", " Instagram Ads "]) == 0
+    out, err = capsys.readouterr()
+    assert "Instagram+Ads" in out and "not_lowercase" in err     # unchanged without --fix
+    spec = write_spec(tmp_path, [["https://ex.com/a", "Instagram Ads", "Social", "launch", "One"]])
+    assert main(["batch", spec, "--out-dir", str(tmp_path / "o"), "--fix", "--strict"]) == 0
+    rows = list(csv.DictReader(open(tmp_path / "o" / "links.csv", encoding="utf-8")))
+    assert "utm_source=instagram-ads&utm_medium=social" in rows[0]["final_url"]

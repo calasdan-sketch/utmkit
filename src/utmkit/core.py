@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import dataclass, field, replace
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 UTM_KEYS = ("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content")
@@ -35,10 +35,30 @@ class Campaign:
 
 @dataclass(frozen=True)
 class Finding:
-    severity: str  # error | warn
+    severity: str  # error | warn | info
     code: str
     where: str
     detail: str
+
+
+_UTM_FIELDS = (("utm_source", "source"), ("utm_medium", "medium"), ("utm_campaign", "campaign"),
+               ("utm_term", "term"), ("utm_content", "content"))
+
+
+def normalize(c: Campaign, where: str = "") -> Tuple[Campaign, List[Finding]]:
+    """Lowercase, trim and turn inner whitespace into '-' in the five UTM values.
+
+    Returns a new Campaign plus one ``info`` finding per value that changed.
+    """
+    where = where or c.name or c.url
+    changes, findings = {}, []
+    for key, attr in _UTM_FIELDS:
+        old = getattr(c, attr)
+        new = re.sub(r"\s+", "-", old.strip().lower())
+        if new != old:
+            changes[attr] = new
+            findings.append(Finding("info", "fixed", where, f"{key}: {old!r} -> {new!r}"))
+    return replace(c, **changes), findings
 
 
 def build_url(campaign: Campaign) -> str:

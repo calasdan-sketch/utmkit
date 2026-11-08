@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from .core import Campaign, Finding, build_url, slugify, unique_slug, validate_campaign
+from .core import Campaign, Finding, build_url, normalize, slugify, unique_slug, validate_campaign
 from .qr import Backend, QrUnavailable, get_backend
 
 COLUMNS = ("url", "source", "medium", "campaign", "term", "content", "name")
@@ -47,6 +47,7 @@ def run_batch(
     qr: bool = False,
     html_index: bool = False,
     qr_backend: Optional[Backend] = None,
+    fix: bool = False,
 ) -> BatchResult:
     result = BatchResult()
     os.makedirs(out_dir, exist_ok=True)
@@ -59,6 +60,9 @@ def run_batch(
     taken: List[str] = []
     for row_no, campaign in campaigns:
         where = f"row {row_no}"
+        if fix:
+            campaign, fixed = normalize(campaign, where=where)
+            result.findings.extend(fixed)
         row_findings = validate_campaign(campaign, where=where)
         result.findings.extend(row_findings)
         if any(f.severity == "error" for f in row_findings):
