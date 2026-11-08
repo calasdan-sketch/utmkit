@@ -71,3 +71,8 @@ def test_validate_unusual_medium_and_scheme():
 def test_validate_known_mediums_quiet():
     for medium in ("email", "social", "cpc", "qr", "print"):
         assert validate_campaign(Campaign("https://x.com", source="a", medium=medium)) == []
+
+
+def test_non_standard_utm_params_survive():
+    url = build_url(Campaign("https://ex.com/?utm_id=42&utm_source=old", source="new"))
+    assert "utm_id=42" in url and "utm_source=new" in url and "old" not in url

@@ -10,6 +10,9 @@ from .core import Campaign, build_url, validate_campaign
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # Windows cp1252 consoles choke on non-Latin values
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(prog="utmkit", description="Batch UTM campaign links + QR codes.")
     ap.add_argument("--version", action="version", version=f"utmkit {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)

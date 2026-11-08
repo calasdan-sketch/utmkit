@@ -42,12 +42,12 @@ Produces `out/links.csv` (slug, final URL, QR filename), one QR PNG per row when
 - **error** — missing `utm_source`, empty URL
 - **warn** — uppercase values (analytics tools split `Instagram` from `instagram`), spaces in values, unusual `utm_medium` values, URLs without a scheme
 
-Warnings don't fail the build unless `--strict`.
+Warnings don't fail the build unless `--strict`. In `batch`, a row with an error is reported and skipped (no link built) and the run exits 1.
 
 ## Design notes
 
-- **Deterministic slugs**: the `name` column (else the URL) becomes the filename slug; collisions get `-2`, `-3` suffixes — same input, same output names, every run.
-- **Existing params survive**: `?id=7&ref=nav` stays intact; stale `utm_*` values are replaced by the campaign (the campaign is the source of truth).
+- **Deterministic slugs**: the `name` column (else the final tagged URL) becomes the filename slug; collisions get `-2`, `-3` suffixes — same input, same output names, every run.
+- **Existing params survive**: `?id=7&ref=nav` stays intact; stale values for the five standard keys (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`) are replaced by the campaign (the campaign is the source of truth); other params such as `utm_id` are kept.
 - **QR is optional**: the core has zero dependencies; `qrcode` is only imported when you pass `--qr` and installs via the `[qr]` extra. Custom backends can be injected through the Python API.
 - **Static `index.html`**: host it, print it, or hand it to whoever is running the campaign — no JS, no build step.
 

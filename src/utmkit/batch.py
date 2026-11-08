@@ -14,7 +14,7 @@ COLUMNS = ("url", "source", "medium", "campaign", "term", "content", "name")
 
 
 def load_campaigns(path: str) -> List[tuple]:
-    """Read the spec CSV; returns [(row_number, Campaign, original_row)]."""
+    """Read the spec CSV; returns [(row_number, Campaign)]."""
     out = []
     with open(path, newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
@@ -59,9 +59,12 @@ def run_batch(
     taken: List[str] = []
     for row_no, campaign in campaigns:
         where = f"row {row_no}"
-        result.findings.extend(validate_campaign(campaign, where=where))
+        row_findings = validate_campaign(campaign, where=where)
+        result.findings.extend(row_findings)
+        if any(f.severity == "error" for f in row_findings):
+            continue                      # reported above; don't build a broken link (or crash on no url)
         url = build_url(campaign)
-        base = slugify(campaign.name or (campaign.url + url))
+        base = slugify(campaign.name or url)
         slug = unique_slug(base, taken)
         taken.append(slug)
         entry = {"slug": slug, "url": campaign.url, "final_url": url, "qr": ""}
@@ -93,9 +96,12 @@ def write_html_index(result: BatchResult, path: str) -> None:
     for row in result.rows:
         qr_cell = (f"<img src='{html.escape(row['qr'])}' width='120' alt='QR'>"
                    if row["qr"] else "")
+        link = html.escape(row["final_url"])
+        if row["final_url"].lower().startswith(("http://", "https://")):  # no javascript: hrefs
+            link = f"<a href='{link}'>{link}</a>"
         lines.append(
             f"<tr><td>{html.escape(row['slug'])}</td>"
-            f"<td><a href='{html.escape(row['final_url'])}'>{html.escape(row['final_url'])}</a></td>"
+            f"<td>{link}</td>"
             f"<td>{qr_cell}</td></tr>"
         )
     lines.append("</table>")

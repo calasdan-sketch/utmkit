@@ -21,7 +21,7 @@ classifiers = [
 utmkit = "utmkit.cli:main"
 
 [project.optional-dependencies]
-qr = ["qrcode>=7"]
+qr = ["qrcode[pil]>=7"]  # qrcode 8 no longer pulls in an image backend by itself
 
 [tool.setuptools.packages.find]
 where = ["src"]

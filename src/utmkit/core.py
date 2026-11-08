@@ -44,14 +44,15 @@ class Finding:
 def build_url(campaign: Campaign) -> str:
     """Merge UTM parameters into the URL, preserving existing query params.
 
-    Existing utm_* keys are overridden by the campaign values (the campaign is
-    the source of truth); other existing params survive untouched.
+    Existing values for the five standard UTM keys are replaced by the campaign
+    (the campaign is the source of truth); every other param survives, including
+    non-standard ones such as GA4's utm_id.
     """
     if not campaign.url:
         raise ValueError("campaign url is empty")
     parts = urlsplit(campaign.url)
     kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
-            if not k.lower().startswith("utm_")]
+            if k.lower() not in UTM_KEYS]
     merged = kept + list(campaign.utm().items()) + list(campaign.extra.items())
     return urlunsplit((parts.scheme, parts.netloc, parts.path,
                        urlencode(merged), parts.fragment))

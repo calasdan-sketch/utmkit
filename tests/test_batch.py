@@ -93,3 +93,22 @@ def test_cli_bad_spec(tmp_path):
     bad = tmp_path / "bad.csv"
     bad.write_text("nope,columns\n1,2\n", encoding="utf-8")  # lacks the url column
     assert main(["batch", str(bad)]) == 2
+
+
+def test_batch_skips_error_rows_instead_of_crashing(tmp_path):
+    spec = write_spec(tmp_path, [
+        ["", "instagram", "social", "launch", "No URL"],
+        ["https://ex.com/a", "instagram", "social", "launch", "Good"],
+    ])
+    out = tmp_path / "out"
+    assert main(["batch", spec, "--out-dir", str(out)]) == 1
+    rows = list(csv.DictReader(open(out / "links.csv", encoding="utf-8")))
+    assert [r["slug"] for r in rows] == ["good"]
+
+
+def test_html_index_never_links_non_http_urls(tmp_path):
+    spec = write_spec(tmp_path, [["javascript:alert(1)", "x", "email", "c", "bad"]])
+    out = tmp_path / "out"
+    main(["batch", spec, "--out-dir", str(out), "--html"])
+    page = (out / "index.html").read_text(encoding="utf-8")
+    assert "href='javascript" not in page and "javascript:alert(1)" in page
