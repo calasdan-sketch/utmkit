@@ -1,0 +1,8 @@
+<!doctype html><meta charset='utf-8'>
+<meta http-equiv='Content-Security-Policy' content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'">
+<title>Campaign links</title>
+<table border='1' cellpadding='6'><tr><th>slug</th><th>link</th><th>GA4 channel</th><th>QR</th></tr>
+<tr><td>search-ad</td><td><a href='https://example.com/a?x=1;y=2&amp;flag&amp;utm_source=google&amp;utm_medium=cpc&amp;utm_campaign={campaignid}&amp;utm_term={keyword}&amp;utm_content={{ad.name}}' rel='noopener noreferrer'>https://example.com/a?x=1;y=2&amp;flag&amp;utm_source=google&amp;utm_medium=cpc&amp;utm_campaign={campaignid}&amp;utm_term={keyword}&amp;utm_content={{ad.name}}</a></td><td></td><td></td></tr>
+<tr><td>spring-mail</td><td><a href='https://example.com/b?utm_source=newsletter&amp;utm_medium=email&amp;utm_campaign=spring-26#top' rel='noopener noreferrer'>https://example.com/b?utm_source=newsletter&amp;utm_medium=email&amp;utm_campaign=spring-26#top</a></td><td>Email</td><td></td></tr>
+<tr><td>ig-post</td><td><a href='https://example.com/c?z=%7Efoo&amp;utm_source=Instagram&amp;utm_medium=social&amp;utm_campaign=spring-26' rel='noopener noreferrer'>https://example.com/c?z=%7Efoo&amp;utm_source=Instagram&amp;utm_medium=social&amp;utm_campaign=spring-26</a></td><td>Organic Social</td><td></td></tr>
+</table>

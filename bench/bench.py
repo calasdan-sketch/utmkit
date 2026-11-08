@@ -103,6 +103,9 @@ def detection():
         (Campaign("https://a.com", source="spring%20sale", medium="email", campaign="c"), "pre_encoded"),
         (Campaign("https://a.com:abc/", source="a", medium="email", campaign="c"), "bad_host"),
         (Campaign("https://a.com", source="a", medium="email", campaign="c", content="jo@example.com"), "pii_email"),
+        (Campaign("https://a.com\\@b.com/", source="a", medium="email", campaign="c"), "backslash_in_url"),
+        (Campaign("https://a.com/?x=1&amp;y=2", source="a", medium="email", campaign="c"), "html_entity_in_url"),
+        (Campaign("https://u:p@a.com/", source="a", medium="email", campaign="c"), "url_credentials"),
     ]
     pairs = [(Campaign("https://a.com", source="Instagram", medium="social", campaign="c"),
               Campaign("https://b.com", source="instagram", medium="social", campaign="c"), "case_variants"),
@@ -117,6 +120,16 @@ def detection():
     new = sum(1 for c, d in seeded if any(f.code == d for f in validate_campaign(c, ga4=True)))
     new += sum(1 for a, b, d in pairs if any(f.code == d for f in validate_rows([(2, a), (3, b)])))
     return old, new, total
+
+
+def placeholders():
+    """Ad-platform placeholders that must reach the ad platform unencoded (0.2.0 encoded the braces)."""
+    from urllib.parse import quote
+    macros = ["{campaignid}", "{keyword}", "{adgroupid}", "{{campaign.name}}", "{{adset.name}}",
+              "{{ad.name}}", "{CampaignId}", "__CAMPAIGN_NAME__"]
+    old = sum(1 for m in macros if f"utm_campaign={m}" in f"utm_campaign={quote(m, safe='')}")
+    new = sum(1 for m in macros if f"utm_campaign={m}" in build_url(Campaign("https://a.com", source="s", campaign=m)))
+    return old, new, len(macros)
 
 
 def hostile():
@@ -160,6 +173,8 @@ if __name__ == "__main__":
           f"1500 identical names: 0.1.0 slug allocation alone {legacy_s:.2f}s, whole batch now {new_s:.2f}s")
     old, new, total = detection()
     print(f"seeded-defect detection: utmkit 0.1.0 {old}/{total}  now {new}/{total}")
+    o, n, tot = placeholders()
+    print(f"ad-platform placeholders kept unencoded: utmkit 0.2.0 {o}/{tot}  now {n}/{tot}")
     o, n, tot, rej, ms, leg = hostile()
     print(f"non-public redirect targets refused: utmkit 0.2.0 {o}/{tot}  now {n}/{tot}")
     print(f"catastrophic taxonomy regex '(a+)+$': 0.2.0 ran it ({leg:.2f}s on a 23-char value, doubling per char); "

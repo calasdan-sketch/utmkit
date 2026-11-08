@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from typing import List, Optional, Tuple
 
 from .channels import ga4_channel
-from .core import (Campaign, Finding, build_url, campaign_from_url, sanitize, slugify,
+from .core import (Campaign, Finding, build_url, campaign_from_url, has_macro, sanitize, slugify,
                    validate_campaign, validate_rows)
 from .taxonomy import Taxonomy, check_taxonomy, fix_campaign
 from .qr import Backend, QrUnavailable, get_backend
@@ -72,7 +72,8 @@ def load_spec(path: str) -> Tuple[List[tuple], List[Finding]]:
                 if len(out) >= MAX_ROWS:
                     raise ValueError(f"spec CSV has more than {MAX_ROWS} rows")
                 norm = {names[k]: v.strip() for k, v in enumerate(row[:len(names)])}
-                out.append((i, Campaign(**{c: norm.get(c, "") for c in COLUMNS})))
+                fields: dict = {c: norm.get(c, "") for c in COLUMNS}
+                out.append((i, Campaign(**fields)))
     except csv.Error as e:
         raise ValueError(f"spec CSV is malformed: {e}") from None
     except UnicodeDecodeError:
@@ -208,9 +209,11 @@ def run_batch(
         else:
             slug = base
         taken.add(slug)
-        ch = ga4_channel(campaign.source, campaign.medium, campaign.campaign)
+        channel = ga4_channel(campaign.source, campaign.medium, campaign.campaign)
+        guessable = campaign.medium and not any(
+            has_macro(v) for v in (campaign.source, campaign.medium, campaign.campaign))
         entry = {"slug": slug, "url": campaign.url, "final_url": url, "qr": "",
-                 "name": campaign.name, "ga4_channel": ch.name if campaign.medium else "",
+                 "name": campaign.name, "ga4_channel": channel.name if guessable else "",
                  **{k: getattr(campaign, a) for k, a in _OUT_UTM}}
         if backend is not None:
             qr_path = os.path.join(out_dir, f"{slug}.png")

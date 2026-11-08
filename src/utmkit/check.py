@@ -22,7 +22,8 @@ from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 from urllib.parse import urljoin, urlsplit
 
-from .core import UTM_KEYS, _key, sanitize
+from . import __version__
+from .core import UTM_KEYS, _key, has_unsafe, sanitize, url_head
 
 
 @dataclass
@@ -57,9 +58,9 @@ def _resolve(host: str, port: int, allow_private: bool):
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except (OSError, UnicodeError) as e:
         return [], f"cannot resolve {sanitize(host)}: {sanitize(str(e))[:80]}"
-    ips = []
+    ips: List[str] = []
     for info in infos:
-        text = info[4][0].split("%")[0]
+        text = str(info[4][0]).split("%")[0]
         ip = ipaddress.ip_address(text)
         if not allow_private and not _public(ip):
             return [], f"{sanitize(host)} resolves to non-public address {ip}; use --allow-private to permit"
@@ -100,7 +101,7 @@ def _make_fetch(allow_private: bool) -> Callable[[str, float], tuple]:
     def fetch(url: str, timeout: float):
         p = urlsplit(url)
         port = p.port or (443 if p.scheme == "https" else 80)
-        ips, problem = _resolve(p.hostname, port, allow_private)
+        ips, problem = _resolve(p.hostname or "", port, allow_private)
         if problem:
             raise OSError(problem)
         path = (p.path or "/") + (f"?{p.query}" if p.query else "")
@@ -110,7 +111,7 @@ def _make_fetch(allow_private: bool) -> Callable[[str, float], tuple]:
             conn = cls(p.hostname, port, ip, timeout)
             try:
                 for method in ("HEAD", "GET"):
-                    conn.request(method, path, headers={"User-Agent": "utmkit-check/0.2",
+                    conn.request(method, path, headers={"User-Agent": f"utmkit-check/{__version__}",
                                                         "Accept": "*/*"})
                     resp = conn.getresponse()
                     if method == "HEAD" and resp.status in (405, 501):
@@ -133,7 +134,7 @@ def _request(url: str, timeout: float):  # kept for callers that used the 0.2 na
 
 
 def _utms(url: str) -> dict:
-    out = {}
+    out: dict = {}
     for pp in urlsplit(url).query.split("&"):
         k = _key(pp)
         if k in UTM_KEYS:
@@ -151,6 +152,11 @@ def check_url(url: str, allow_private: bool = False, max_hops: int = 10,
     want = set(sent)
     cur = url
     for _ in range(max_hops + 1):
+        if "\\" in url_head(cur) or has_unsafe(cur) or " " in cur:
+            # Browsers and Python's URL parser disagree about backslashes, so which host would
+            # be contacted is ambiguous; never guess (applies to every redirect hop too).
+            res.problem = "refusing a URL with a backslash, space or control character"
+            return res
         try:
             p = urlsplit(cur)
             port = p.port or (443 if p.scheme == "https" else 80)
@@ -160,7 +166,7 @@ def check_url(url: str, allow_private: bool = False, max_hops: int = 10,
         if p.scheme not in ("http", "https") or not p.hostname:
             res.problem = f"refusing non-http(s) URL {sanitize(cur)[:100]!r}"
             return res
-        bad = _host_allowed(p.hostname, port, allow_private)
+        bad = _host_allowed(p.hostname or "", port, allow_private)
         if bad:
             res.problem = bad
             return res

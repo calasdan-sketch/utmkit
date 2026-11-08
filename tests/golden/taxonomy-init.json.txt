@@ -1,0 +1,29 @@
+exit=0
+{
+  "fields": {
+    "source": {
+      "allowed": [
+        "google",
+        "instagram",
+        "newsletter",
+        "s"
+      ]
+    },
+    "medium": {
+      "allowed": [
+        "cpc",
+        "email",
+        "m",
+        "social"
+      ]
+    },
+    "campaign": {
+      "max_length": 40
+    }
+  },
+  "required": [
+    "source",
+    "medium",
+    "campaign"
+  ]
+}

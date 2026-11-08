@@ -39,8 +39,8 @@ Produces `out/links.csv` (slug, final URL, QR filename), one QR PNG per row when
 
 `utmkit validate spec.csv` (and `batch`) flag the mistakes that silently wreck analytics, per row and across rows:
 
-- **error** (row is skipped, exit 1): no url / non-http(s) scheme such as `javascript:` / no host or a bad port (`https://ex.com:abc/`) / spaces or control or invisible characters in values / missing `utm_source`
-- **warn**: an email address in a value (analytics terms forbid personal data in URLs), uppercase (GA4 values are case sensitive), spaces, already percent-encoded values, missing `utm_medium` / `utm_campaign` (GA4 shows `(not set)`), a medium that lands in GA4's **Unassigned** channel (e.g. `qr`, `print`), a utm already in the URL being replaced, URLs over 2000 chars
+- **error** (row is skipped, exit 1): no url / non-http(s) scheme such as `javascript:` / no host or a bad port (`https://ex.com:abc/`) / a backslash in the URL (browsers read `\` as `/`, other parsers do not, so tools can disagree about the host) / `&amp;` pasted from HTML (the next parameter would be misread) / spaces, control or invisible characters (including lone surrogates) / missing `utm_source`
+- **warn**: a user name or password in the URL (`user:pw@host`), an email address in a value (analytics terms forbid personal data in URLs), uppercase (GA4 values are case sensitive), spaces, already percent-encoded values, missing `utm_medium` / `utm_campaign` (GA4 shows `(not set)`), a medium that lands in GA4's **Unassigned** channel (e.g. `qr`, `print`), a utm already in the URL being replaced, URLs over 2000 chars
 - **across rows**: `Instagram` vs `instagram`, `paid-social` vs `paid_social`, and two rows that build the identical link
 - `--strict` makes warnings fail the run; `--no-ga4` turns the GA4-specific checks off; informational `fixed` notes never fail it.
 
@@ -66,9 +66,17 @@ Flags values that match an earlier batch's value except for case or punctuation,
 
 With `batch --expand` (or `validate --expand`), `a|b` in a `source`/`medium`/`campaign`/`term`/`content`/... cell makes one link per value, all combinations: `source=instagram|facebook` and `content=a|b` give four links, and the `name` gets the values appended. Off by default, so a literal `|` in your values is untouched. More than 200,000 links stops the run.
 
+### Ad-platform placeholders (`{campaignid}`, `{{campaign.name}}`)
+
+Paid-media links usually carry placeholders the ad platform fills in at click time: Google Ads ValueTrack (`{keyword}`, `{campaignid}`), Meta dynamic URL parameters (`{{campaign.name}}`, `{{ad.name}}`), `__CAMPAIGN_NAME__`-style tokens. utmkit 0.2 percent-encoded the braces (`%7Bcampaignid%7D`), which stops the platform from recognising them. Now a value such as `{campaignid}` or `{{ad.name}}` is kept exactly as written (text around it is still encoded), and you get an `info` note that GA4 is case sensitive and will report whatever text the platform sends. `--fix` and `--taxonomy` leave placeholders alone; `audit` warns (`placeholder_encoded`) about published links that already carry an encoded one; `check` substitutes `test` for each placeholder before following redirects. Recognition is by shape (`{word}`, `{{word.path}}`, `__WORD__`), not a list of every platform's tokens; `{keyword}` and `{lpurl}` were seen on Google's ValueTrack help page when fetched, the others are from memory and unverified against each platform's current docs.
+
+### In CI (`--format github`)
+
+`validate`, `audit` and `batch` take `--format github` and print one GitHub Actions annotation per finding (`::error file=spec.csv,line=3,title=utmkit not_lowercase::...`), so a spec CSV in a repository gets inline warnings on a pull request. The line is the spec row as utmkit counts it (header = row 1), which differs from the physical line when a cell contains a line break. Finding text is escaped, so a hostile cell cannot inject a second workflow command. Verified here by golden-file tests, not by running GitHub Actions.
+
 ### Machine-readable output
 
-`validate`, `audit` and `batch` take `--format json` and print one JSON document (`findings`, plus row/link counts) on stdout; `check --format json` prints per-row results. Control and bidi characters are escaped. Exit codes: 0 clean, 1 errors (or warnings with `--strict`), 2 unreadable input/taxonomy/output folder.
+`validate`, `audit` and `batch` take `--format json` (or `github`, below) and print one JSON document (`findings`, plus row/link counts) on stdout; `check --format json` prints per-row results. Control and bidi characters are escaped. Exit codes: 0 clean, 1 errors (or warnings with `--strict`), 2 unreadable input/taxonomy/output folder.
 
 ### Naming convention (`--taxonomy`, `--fix`)
 
@@ -114,10 +122,11 @@ Measured with `python bench/bench.py` (stdlib only, seeded, re-runnable; the old
 |---|---|---|---|
 | Non-UTM query kept byte-for-byte (5000 URLs with flags, `;`, `+`, `%2F`) | 100% | 33.2% (0.1) | 33.1% |
 | 1500 identical names, slug allocation | 0.05-0.07 s whole batch | 6-7 s (0.1, slug step alone) | n/a |
-| Seeded defects caught by exact code (12: scheme, GA4 Unassigned, missing campaign/medium, case/near-dup/dup link, invisible chars, bad port, email in a value, ...) | 12/12 | 0/12 (0.1) | not measured (library only validates empties) |
+| Seeded defects caught by exact code (15: scheme, GA4 Unassigned, missing campaign/medium, case/near-dup/dup link, invisible chars, bad port, email in a value, backslash URL, `&amp;`, credentials ...) | 15/15 | 0/15 (0.1) | not measured (library only validates empties) |
 | Non-public redirect targets refused (13 address forms) | 13/13 | 11/13 (0.2: missed `100.64.0.1`, `100.127.255.254`) | n/a |
+| Ad-platform placeholders kept unencoded (8: `{campaignid}`, `{{ad.name}}`, ...) | 8/8 | 1/8 (0.2) | not measured |
 | Taxonomy regex `(a+)+$` | rejected at load (< 1 ms) | ran it: 0.2-0.25 s on a 23-char value, doubling per added character (0.2) | n/a |
-| Batch build+validate+slug, 20k rows | 17-22k rows/s | about 10k rows/s (0.2) | n/a |
+| Batch build+validate+slug, 20k rows | 17-22k rows/s on a quiet machine (round 3); in round 5 the host was loaded (load average > 20) and absolute figures were 2-4k rows/s, but the same-time A/B against the round-3 code was within about 10% (3.7k vs 3.7-4.1k) | about 10k rows/s (0.2) | n/a |
 
 | Tool | Bulk from CSV | Audit existing links | Cross-row / cross-batch consistency | Naming rules | GA4 channel preview | Redirect check | Offline / free |
 |---|---|---|---|---|---|---|---|
@@ -135,7 +144,9 @@ Measured with `python bench/bench.py` (stdlib only, seeded, re-runnable; the old
 - `check` follows HTTP redirects only and needs network access. The pinned HTTPS path was verified by hand against a local self-signed server, not in the automated tests (they need no OpenSSL and no network).
 - `--history` and `taxonomy-init` compare spellings only (case and punctuation); they do not know that `ig` means `instagram` unless your taxonomy says so.
 - Email detection is a simple pattern; it will miss obfuscated addresses and flags `user@host` lookalikes.
-- Tested on Python 3.13 (full suite) and 3.11 / 3.12 (import and regex-screen smoke test only); 3.9 is declared in `pyproject.toml` but was not run here.
+- Tested on Python 3.13 and 3.11 (full suite, including a non-editable install of the built wheel); 3.12 was not run in full; 3.9 is declared in `pyproject.toml` and CI but was not run here. Windows has never been run (paths and slugs were reviewed by reading only).
+- A single utm value of 100,000 characters takes a few seconds to validate (Python's percent-decoder is slow on it); spec cells over 131,072 characters are refused by the CSV reader.
+- The package metadata carries no project URL: the repository is private, so nothing is claimed about where the source can be read.
 - The 2000-character URL warning is a conservative rule of thumb, not a documented per-platform limit.
 - `links.csv` gained columns after the original three (`slug,final_url,qr`); rows with errors are no longer written to it.
 
@@ -150,4 +161,4 @@ assert slugify("Spring Sale — 20% OFF!") == "spring-sale-20-off"
 
 ## License
 
-MIT-style: use it, ship it, no warranty.
+MIT. Copyright (c) 2026 Calas Automations Inc. Use it, ship it, no warranty.

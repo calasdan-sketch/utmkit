@@ -1,0 +1,8 @@
+exit=1
+INFO  row 2: placeholder: utm_campaign='{campaignid}' holds an ad-platform placeholder: left unencoded so the platform fills it in; GA4 is case sensitive and reports whatever text the platform sends
+INFO  row 2: placeholder: utm_term='{keyword}' holds an ad-platform placeholder: left unencoded so the platform fills it in; GA4 is case sensitive and reports whatever text the platform sends
+INFO  row 2: placeholder: utm_content='{{ad.name}}' holds an ad-platform placeholder: left unencoded so the platform fills it in; GA4 is case sensitive and reports whatever text the platform sends
+WARN  row 4: not_lowercase: utm_source='Instagram' should be lowercase (GA4 values are case sensitive)
+ERROR row 5: html_entity_in_url: url contains '&amp;' (copied from HTML); use a plain '&' or the parameter after it is misread; row skipped
+WARN  row 5: ga4_unassigned: source='s' medium='m' matches no GA4 default channel rule, so sessions land in 'Unassigned' (use e.g. email, social, cpc, display, affiliate, referral)
+6 finding(s)

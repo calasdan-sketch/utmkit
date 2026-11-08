@@ -2,6 +2,20 @@
 
 ## 0.2.0 (unreleased)
 
+Added (round 5)
+- Ad-platform placeholders (`{campaignid}`, `{keyword}`, `{{campaign.name}}`, `__CAMPAIGN_NAME__`) are kept unencoded in utm values; `--fix`, `--taxonomy`, GA4 channel guessing and the case/space checks leave them alone; new `placeholder` (info) and `placeholder_encoded` (warn, for already-published links) findings; `check` substitutes a stand-in before following redirects.
+- `--format github` for `validate`, `audit`, `batch`: GitHub Actions annotations with file and row, escaped against workflow-command injection.
+- New findings: `backslash_in_url` (error), `html_entity_in_url` (error, `&amp;`), `url_credentials` (warn), `idn_host` (info). `check` refuses backslash URLs and redirects to them.
+- Lone surrogates (undecodable command-line bytes) are `bad_value_chars` errors; `build_url` raises `ValueError` instead of `UnicodeEncodeError`.
+- `py.typed`, `MANIFEST.in` (sdist now carries tests with golden files, bench, changelog), `[dev]` extra, pytest `pythonpath` so `pytest` works without installing, `__author__`, `--version` shows the maintainer.
+- Tests: golden files for text/json/github/csv/html output, hypothesis property tests, a GA4 channel table, author/version pins. `bench/mutants.py` breaks 15 key conditions one at a time and checks the suite notices (all caught).
+
+Changed (round 5, behaviour)
+- Author, maintainer and licence holder are now "Calas Automations Inc." (pyproject, LICENSE, README, `--version`, `__author__`). Build requires setuptools>=77 (SPDX licence expression).
+- Values that match the placeholder shape are no longer percent-encoded (before: `%7Bcampaignid%7D`, which ad platforms do not recognise).
+- Output streams no longer raise on non-UTF-8 terminals (unencodable characters print as `\xNN`); the `check` User-Agent reports the real version.
+- mypy is clean on `src/`.
+
 Added (round 3)
 - `utmkit audit FILE`: validate links that are already tagged (URL-per-line file or CSV with a `url` column); `utmkit taxonomy-init FILE [--out JSON]` writes starter naming rules from existing spellings.
 - `--history links.csv` (batch/validate/audit): `history_variant` and `history_duplicate` findings against earlier batches.

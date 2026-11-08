@@ -5,7 +5,7 @@ import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 UTM_KEYS = ("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
@@ -14,7 +14,7 @@ MAX_SLUG = 80
 _RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
              *(f"lpt{i}" for i in range(1, 10))}
 # control chars, bidi controls/isolates, zero-width and BOM
-_UNSAFE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]")
+_UNSAFE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\ud800-\udfff]")
 
 
 def sanitize(text: str) -> str:
@@ -24,6 +24,36 @@ def sanitize(text: str) -> str:
 
 def has_unsafe(text: str) -> bool:
     return bool(_UNSAFE.search(text))
+
+
+# Ad-platform placeholders that the platform fills in at click time: Google Ads ValueTrack
+# ``{campaignid}``, Meta dynamic URL parameters ``{{campaign.name}}``, and ``__CAMPAIGN_NAME__``
+# style tokens. Percent-encoding the braces (``%7Bcampaignid%7D``) stops the platform from
+# recognising them, so build_url leaves them as written. Pattern-based, not a list of every
+# platform's macros (unverified against each platform's current documentation).
+MACRO = re.compile(r"\{\{[A-Za-z][A-Za-z0-9_.:-]{0,60}\}\}|\{[A-Za-z][A-Za-z0-9_.:-]{0,60}\}"
+                   r"|__[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*__")
+_ENC_MACRO = re.compile(r"%7B(?:%7B)?[A-Za-z][A-Za-z0-9_.:-]{0,60}%7D(?:%7D)?", re.I)
+
+
+def has_macro(text: str) -> bool:
+    return bool(MACRO.search(text))
+
+
+def strip_macros(text: str) -> str:
+    """The value with placeholders removed (what is left is what we can check ourselves)."""
+    return MACRO.sub("", text)
+
+
+def encode_value(value: str) -> str:
+    """Percent-encode a utm value but keep ad-platform placeholders verbatim."""
+    out, last = [], 0
+    for m in MACRO.finditer(value):
+        out.append(quote(value[last:m.start()], safe=""))
+        out.append(m.group())
+        last = m.end()
+    out.append(quote(value[last:], safe=""))
+    return "".join(out)
 _SLUG_CLEAN = re.compile(r"[^a-z0-9]+")
 
 
@@ -65,6 +95,25 @@ class Finding:
     detail: str
 
 
+def url_head(url: str) -> str:
+    """The part before any ? or # (scheme, host and path): where a backslash changes the host."""
+    return re.split(r"[?#]", url, maxsplit=1)[0]
+
+
+def sp_query(url: str) -> str:
+    try:
+        return urlsplit(url).query
+    except ValueError:
+        return ""
+
+
+def _raw_utm_values(url: str):
+    for p in sp_query(url).split("&"):
+        k = _key(p)
+        if k in UTM_KEYS and "=" in p:
+            yield k, p.split("=", 1)[1]
+
+
 def _key(pair: str) -> str:
     return unquote(pair.split("=", 1)[0].replace("+", " ")).lower()
 
@@ -81,8 +130,11 @@ def build_url(campaign: Campaign) -> str:
         raise ValueError("campaign url is empty")
     parts = urlsplit(campaign.url)
     kept = [p for p in parts.query.split("&") if p and _key(p) not in UTM_KEYS]
-    new = [f"{k}={quote(v, safe='')}" for k, v in
-           list(campaign.utm().items()) + list(campaign.extra.items())]
+    try:
+        new = [f"{k}={encode_value(v)}" for k, v in
+               list(campaign.utm().items()) + list(campaign.extra.items())]
+    except UnicodeEncodeError:  # lone surrogates, e.g. from an undecodable command-line argument
+        raise ValueError("a value contains characters that cannot be encoded as UTF-8") from None
     return urlunsplit((parts.scheme, parts.netloc, parts.path,
                        "&".join(kept + new), parts.fragment))
 
@@ -104,7 +156,8 @@ def campaign_from_url(url: str, name: str = "") -> Campaign:
     the same values, so the result is the identical link.
     """
     old = existing_utm(url)
-    return Campaign(url=url, name=name, **{attr: old.get(key, "") for key, attr in _VALUES})
+    values: Dict[str, Any] = {attr: old.get(key, "") for key, attr in _VALUES}
+    return Campaign(url=url, name=name, **values)
 
 
 def slugify(text: str, fallback: str = "link") -> str:
@@ -171,6 +224,7 @@ def validate_campaign(c: Campaign, where: str = "", ga4: bool = False,
         return out
     try:
         sp = urlsplit(c.url)
+        query = sp.query
         sp.port  # noqa: B018 - raises ValueError for a non-numeric / out-of-range port
         host_ok = bool(sp.hostname)
     except ValueError:
@@ -182,6 +236,28 @@ def validate_campaign(c: Campaign, where: str = "", ga4: bool = False,
     if has_unsafe(c.url) or " " in c.url.strip():
         out.append(Finding("error", "bad_url_chars", where,
                            "url contains spaces or control/invisible characters"))
+    if "\\" in c.url and "\\" in url_head(c.url):
+        out.append(Finding("error", "backslash_in_url", where,
+                           "url contains a backslash; browsers read it as '/' but other parsers "
+                           "do not, so tools can disagree about which host this points to; row skipped"))
+    if "&" in query and "&amp;" in query.lower():
+        out.append(Finding("error", "html_entity_in_url", where,
+                           "url contains '&amp;' (copied from HTML); use a plain '&' or the "
+                           "parameter after it is misread; row skipped"))
+    if scheme in ("http", "https"):
+        if "@" in sp.netloc:
+            out.append(Finding("warn", "url_credentials", where,
+                               "url has something@ before the host (user name/password); "
+                               "it would be stored in analytics and logs"))
+        if sp.hostname and not sp.hostname.isascii():
+            out.append(Finding("info", "idn_host", where,
+                               "host has non-ASCII characters; consider the xn-- (punycode) form "
+                               "so every platform reads the same host"))
+    for key, raw in (_raw_utm_values(c.url) if "%7" in c.url.lower() else ()):
+        if _ENC_MACRO.search(raw):
+            out.append(Finding("warn", "placeholder_encoded", where,
+                               f"url already has {key} with an encoded placeholder "
+                               f"({sanitize(raw)[:60]}); the ad platform will not fill it in"))
     if not scheme or scheme not in ("http", "https"):
         out.append(Finding("warn", "no_scheme", where,
                            f"url {sanitize(c.url)!r} has no http(s) scheme"))
@@ -202,6 +278,14 @@ def validate_campaign(c: Campaign, where: str = "", ga4: bool = False,
             out.append(Finding("error", "bad_value_chars", where,
                                f"{key}={sanitize(value)!r} has control/invisible characters"))
             continue
+        if has_macro(value):
+            out.append(Finding("info", "placeholder", where,
+                               f"{key}={value!r} holds an ad-platform placeholder: left unencoded "
+                               "so the platform fills it in; GA4 is case sensitive and reports "
+                               "whatever text the platform sends"))
+            value = strip_macros(value)
+            if not value:
+                continue
         if value != value.lower():
             out.append(Finding("warn", "not_lowercase", where,
                                f"{key}={value!r} should be lowercase (GA4 values are case sensitive)"))
@@ -221,7 +305,7 @@ def validate_campaign(c: Campaign, where: str = "", ga4: bool = False,
         out.append(Finding("warn", "unusual_medium", where,
                            f"utm_medium={sanitize(c.medium)!r} is not a common value "
                            "(email/social/cpc/...): fine if intentional"))
-    if ga4 and c.medium and c.source:
+    if ga4 and c.medium and c.source and not (has_macro(c.source) or has_macro(c.medium)):
         ch = ga4_channel(c.source, c.medium, c.campaign)
         if ch.name == "Unassigned":
             out.append(Finding("warn", "ga4_unassigned", where,

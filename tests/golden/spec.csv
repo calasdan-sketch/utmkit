@@ -1,0 +1,5 @@
+url,source,medium,campaign,term,content,name
+https://example.com/a?x=1;y=2&flag,google,cpc,{campaignid},{keyword},{{ad.name}},Search Ad
+https://example.com/b#top,newsletter,email,spring-26,,,Spring Mail
+https://example.com/c?z=%7Efoo,Instagram,social,spring-26,,,IG Post
+https://example.com/d?p=1&amp;q=2,s,m,c,,,Bad Entity

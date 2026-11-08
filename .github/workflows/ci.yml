@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
-        run: pip install -e . pytest build twine
+        run: pip install -e ".[dev]"
       - name: Test
         run: pytest -q
       - name: CLI smoke
@@ -28,3 +28,5 @@ jobs:
       - name: Twine check
         run: twine check dist/*
 
+      - name: Wheel carries the right author
+        run: python -c "import glob,zipfile; z=zipfile.ZipFile(glob.glob('dist/*.whl')[0]); m=[n for n in z.namelist() if n.endswith('METADATA')][0]; assert 'Author: Calas Automations Inc.' in z.read(m).decode()"

@@ -1,0 +1,36 @@
+exit=1
+{
+  "findings": [
+    {
+      "severity": "warn",
+      "code": "case_variants",
+      "where": "all rows",
+      "detail": "utm source written 2 ways: 'instagram' (row 1), 'Instagram' (row 2)"
+    },
+    {
+      "severity": "warn",
+      "code": "not_lowercase",
+      "where": "row 2",
+      "detail": "utm_source='Instagram' should be lowercase (GA4 values are case sensitive)"
+    },
+    {
+      "severity": "warn",
+      "code": "placeholder_encoded",
+      "where": "row 3",
+      "detail": "url already has utm_campaign with an encoded placeholder (%7Bcampaignid%7D); the ad platform will not fill it in"
+    },
+    {
+      "severity": "info",
+      "code": "placeholder",
+      "where": "row 3",
+      "detail": "utm_campaign='{campaignid}' holds an ad-platform placeholder: left unencoded so the platform fills it in; GA4 is case sensitive and reports whatever text the platform sends"
+    },
+    {
+      "severity": "error",
+      "code": "untagged",
+      "where": "row 4",
+      "detail": "url has no utm_* parameters"
+    }
+  ],
+  "rows": 4
+}

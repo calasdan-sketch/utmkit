@@ -4,17 +4,38 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 
 from . import __version__
 from .batch import expand_campaigns, load_spec, load_urls, run_batch, write_csv
 from .history import check_history, load_history
 from .channels import ga4_channel
-from .core import Campaign, Finding, build_url, has_unsafe, sanitize, validate_campaign, validate_rows
+from .core import (MACRO, Campaign, Finding, build_url, has_macro, has_unsafe, sanitize,
+                   validate_campaign, validate_rows)
 from .taxonomy import check_taxonomy, fix_campaign, load_taxonomy, suggest_taxonomy
 
 
+def _gh_escape(text: str, prop: bool = False) -> str:
+    text = sanitize(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return text.replace(":", "%3A").replace(",", "%2C") if prop else text
+
+
+def github_annotation(f: Finding, path: str) -> str:
+    """One GitHub Actions workflow command for a finding (``::error file=...,line=N::msg``)."""
+    level = {"error": "error", "warn": "warning"}.get(f.severity, "notice")
+    m = re.fullmatch(r"row (\d+)", f.where)
+    props = f"file={_gh_escape(path, True)}" + (f",line={m.group(1)}" if m else "")
+    props += f",title={_gh_escape('utmkit ' + f.code, True)}"
+    return f"::{level} {props}::{_gh_escape(f.detail)}"
+
+
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # a C/ASCII locale must not turn output into a traceback
+        try:
+            stream.reconfigure(errors="backslashreplace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
     try:
         return _main(argv)
     except BrokenPipeError:  # `utmkit ... | head`
@@ -27,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="utmkit", description="Batch UTM campaign links + QR codes.")
-    ap.add_argument("--version", action="version", version=f"utmkit {__version__}")
+    ap.add_argument("--version", action="version", version=f"utmkit {__version__} (Calas Automations Inc.)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     g = sub.add_parser("gen", help="build one tracked URL")
@@ -55,7 +76,8 @@ def _main(argv: list[str] | None = None) -> int:
     b.add_argument("--strict", action="store_true", help="validation warnings exit non-zero")
     b.add_argument("--history", metavar="CSV", help="earlier links.csv: flag values spelled differently before")
     b.add_argument("--expand", action="store_true", help="a|b in a utm cell makes one link per value (all combinations)")
-    b.add_argument("--format", choices=("text", "json"), default="text", help="json: one machine-readable document on stdout")
+    b.add_argument("--format", choices=("text", "json", "github"), default="text",
+                   help="json: one document on stdout; github: GitHub Actions annotations")
 
     v = sub.add_parser("validate", help="check a spec CSV without building anything")
     v.add_argument("spec")
@@ -64,7 +86,7 @@ def _main(argv: list[str] | None = None) -> int:
     v.add_argument("--strict", action="store_true")
     v.add_argument("--history", metavar="CSV", help="earlier links.csv: flag values spelled differently before")
     v.add_argument("--expand", action="store_true", help="a|b in a utm cell makes one link per value (all combinations)")
-    v.add_argument("--format", choices=("text", "json"), default="text")
+    v.add_argument("--format", choices=("text", "json", "github"), default="text")
 
     a = sub.add_parser("audit", help="check links that are already tagged (URL list or CSV with a url column)")
     a.add_argument("file", help="text file with one URL per line, or a CSV with a url column")
@@ -72,7 +94,7 @@ def _main(argv: list[str] | None = None) -> int:
     a.add_argument("--no-ga4", action="store_true")
     a.add_argument("--strict", action="store_true")
     a.add_argument("--history", metavar="CSV")
-    a.add_argument("--format", choices=("text", "json"), default="text")
+    a.add_argument("--format", choices=("text", "json", "github"), default="text")
 
     t = sub.add_parser("taxonomy-init", help="write starter naming rules from the spellings in existing links")
     t.add_argument("file", help="spec CSV, URL list, or CSV with a url column")
@@ -113,9 +135,10 @@ def _main(argv: list[str] | None = None) -> int:
             return 1
         url = build_url(campaign)
         print(url)
-        if campaign.medium and not args.no_ga4:
-            ch = ga4_channel(campaign.source, campaign.medium, campaign.campaign)
-            print(f"GA4 default channel: {ch.name}" + ("" if ch.certain else " (uncertain)"),
+        if campaign.medium and not args.no_ga4 and not any(
+                has_macro(v) for v in (campaign.source, campaign.medium, campaign.campaign)):
+            chan = ga4_channel(campaign.source, campaign.medium, campaign.campaign)
+            print(f"GA4 default channel: {chan.name}" + ("" if chan.certain else " (uncertain)"),
                   file=sys.stderr)
         if args.qr:
             from .qr import QrUnavailable, get_backend
@@ -141,10 +164,16 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"utmkit: {sanitize(str(e))}", file=sys.stderr)
         return 2
 
-    as_json = getattr(args, "format", "text") == "json"
+    fmt = getattr(args, "format", "text")
+    as_json = fmt == "json"
+    as_github = fmt == "github"
 
     def show(f, out=sys.stdout):
         print(f"{f.severity.upper():5} {f.where}: {f.code}: {f.detail}", file=out)
+
+    def emit_github(findings):
+        for f in findings:
+            print(github_annotation(f, path))
 
     def emit(findings, **extra):
         # ensure_ascii escapes control and bidi characters, so the document is safe to print
@@ -172,7 +201,8 @@ def _main(argv: list[str] | None = None) -> int:
         urls = []
         for row, c in campaigns:
             try:
-                urls.append((row, _bu(c)))
+                # ad-platform placeholders are filled in at click time; test with a stand-in value
+                urls.append((row, MACRO.sub("test", _bu(c))))
             except ValueError:
                 print(f"SKIP  row {row}: no url")
         results = check_many([u for _, u in urls], args.allow_private, timeout=args.timeout,
@@ -211,6 +241,9 @@ def _main(argv: list[str] | None = None) -> int:
                 findings.extend(check_taxonomy(c, tax, f"row {row}"))
         if as_json:
             emit(findings, rows=len(campaigns))
+        elif as_github:
+            emit_github(findings)
+            print(f"{len(findings)} finding(s)", file=sys.stderr)
         else:
             for f in findings:
                 show(f)
@@ -236,8 +269,11 @@ def _main(argv: list[str] | None = None) -> int:
         emit(result.findings, links=len(result.rows), skipped=skipped, csv=out_csv,
              qr=len(result.qr_written))
         return 1 if errors or (args.strict and warns) else 0
-    for f in result.findings:
-        show(f, sys.stderr)
+    if as_github:
+        emit_github(result.findings)
+    else:
+        for f in result.findings:
+            show(f, sys.stderr)
     print(f"{len(result.rows)} link(s) -> {out_csv}"
           + (f", {len(result.qr_written)} QR code(s)" if result.qr_written else "")
           + (f", {skipped} row(s) skipped because of errors" if skipped else ""))

@@ -1,0 +1,6 @@
+include LICENSE README.md CHANGELOG.md PUBLISH-CHECKLIST.md
+graft tests
+graft bench
+graft docs
+prune tests/__pycache__
+global-exclude __pycache__ *.py[cod]

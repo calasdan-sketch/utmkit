@@ -18,9 +18,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from .core import Campaign, Finding, sanitize
+from .core import MACRO, Campaign, Finding, has_macro, sanitize
 
 FIELDS = ("source", "medium", "campaign", "term", "content", "id",
           "source_platform", "creative_format", "marketing_tactic")
@@ -85,7 +85,7 @@ def _charset(body):
 
 def _too_many_overlapping(items) -> bool:
     """Three+ unbounded repeats over overlapping characters with no separator: O(n^3) backtracking."""
-    group = []  # charsets (None = unknown, treated as overlapping everything)
+    group: list = []  # charsets (None = unknown, treated as overlapping everything)
     for op, av in items:
         if _is_repeat(op) and av[1] > _UNBOUNDED:
             cs = _charset(av[2])
@@ -221,6 +221,14 @@ def load_taxonomy(path: str) -> Taxonomy:
 
 def normalize_value(value: str, rule: Optional[FieldRule] = None) -> str:
     """lowercase, whitespace runs -> '-', then apply the field's aliases."""
+    if has_macro(value):  # ad-platform placeholders are case sensitive and filled in later
+        parts, last = [], 0
+        for m in MACRO.finditer(value):
+            parts.append(re.sub(r"\s+", "-", value[last:m.start()].lower()))
+            parts.append(m.group())
+            last = m.end()
+        parts.append(re.sub(r"\s+", "-", value[last:].lower()))
+        return "".join(parts)
     v = re.sub(r"\s+", "-", value.strip().lower())
     if rule and v in rule.aliases:
         v = rule.aliases[v]
@@ -230,7 +238,7 @@ def normalize_value(value: str, rule: Optional[FieldRule] = None) -> str:
 def fix_campaign(c: Campaign, tax: Optional[Taxonomy] = None) -> Tuple[Campaign, List[str]]:
     """Return a normalised copy and a list of 'field: old -> new' changes."""
     changes: List[str] = []
-    updates = {}
+    updates: Dict[str, Any] = {}
     for f in FIELDS:
         old = getattr(c, f)
         if not old:
@@ -254,6 +262,8 @@ def check_taxonomy(c: Campaign, tax: Taxonomy, where: str) -> List[Finding]:
         if rule.max_length and len(v) > rule.max_length:
             out.append(Finding("error", "taxonomy_too_long", where,
                                f"{f} is {len(v)} chars; max {rule.max_length}"))
+        if has_macro(v):  # resolved by the ad platform at click time; cannot be checked here
+            continue
         if rule.allowed is not None and v not in rule.allowed:
             hint = ""
             alias = rule.aliases.get(v.lower())

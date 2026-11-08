@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,10 +9,16 @@ description = "Batch UTM campaign links with consistent slugs, validation, QR co
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
-authors = [{ name = "calasdan-sketch" }]
-keywords = ["utm", "campaign", "tracking", "qr", "marketing", "csv", "links"]
+authors = [{ name = "Calas Automations Inc." }]
+maintainers = [{ name = "Calas Automations Inc." }]
+license-files = ["LICENSE"]
+keywords = ["utm", "campaign", "tracking", "qr", "marketing", "csv", "links", "ga4", "google-analytics"]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
     "Environment :: Console",
     "Topic :: Internet :: WWW/HTTP",
 ]
@@ -22,6 +28,14 @@ utmkit = "utmkit.cli:main"
 
 [project.optional-dependencies]
 qr = ["qrcode>=7"]
+dev = ["pytest", "hypothesis", "build", "twine"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+utmkit = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

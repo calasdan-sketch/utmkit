@@ -1,0 +1,4 @@
+slug,final_url,qr,name,ga4_channel,utm_source,utm_medium,utm_campaign,utm_term,utm_content,utm_id,utm_source_platform,utm_creative_format,utm_marketing_tactic
+search-ad,https://example.com/a?x=1;y=2&flag&utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_term={keyword}&utm_content={{ad.name}},,Search Ad,,google,cpc,{campaignid},{keyword},{{ad.name}},,,,
+spring-mail,https://example.com/b?utm_source=newsletter&utm_medium=email&utm_campaign=spring-26#top,,Spring Mail,Email,newsletter,email,spring-26,,,,,,
+ig-post,https://example.com/c?z=%7Efoo&utm_source=Instagram&utm_medium=social&utm_campaign=spring-26,,IG Post,Organic Social,Instagram,social,spring-26,,,,,,

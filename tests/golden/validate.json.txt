@@ -1,0 +1,42 @@
+exit=1
+{
+  "findings": [
+    {
+      "severity": "info",
+      "code": "placeholder",
+      "where": "row 2",
+      "detail": "utm_campaign='{campaignid}' holds an ad-platform placeholder: left unencoded so the platform fills it in; GA4 is case sensitive and reports whatever text the platform sends"
+    },
+    {
+      "severity": "info",
+      "code": "placeholder",
+      "where": "row 2",
+      "detail": "utm_term='{keyword}' holds an ad-platform placeholder: left unencoded so the platform fills it in; GA4 is case sensitive and reports whatever text the platform sends"
+    },
+    {
+      "severity": "info",
+      "code": "placeholder",
+      "where": "row 2",
+      "detail": "utm_content='{{ad.name}}' holds an ad-platform placeholder: left unencoded so the platform fills it in; GA4 is case sensitive and reports whatever text the platform sends"
+    },
+    {
+      "severity": "warn",
+      "code": "not_lowercase",
+      "where": "row 4",
+      "detail": "utm_source='Instagram' should be lowercase (GA4 values are case sensitive)"
+    },
+    {
+      "severity": "error",
+      "code": "html_entity_in_url",
+      "where": "row 5",
+      "detail": "url contains '&amp;' (copied from HTML); use a plain '&' or the parameter after it is misread; row skipped"
+    },
+    {
+      "severity": "warn",
+      "code": "ga4_unassigned",
+      "where": "row 5",
+      "detail": "source='s' medium='m' matches no GA4 default channel rule, so sessions land in 'Unassigned' (use e.g. email, social, cpc, display, affiliate, referral)"
+    }
+  ],
+  "rows": 4
+}

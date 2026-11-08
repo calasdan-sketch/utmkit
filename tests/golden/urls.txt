@@ -1,0 +1,4 @@
+https://example.com/a?utm_source=instagram&utm_medium=social&utm_campaign=spring-26
+https://example.com/b?utm_source=Instagram&utm_medium=social&utm_campaign=spring-26
+https://example.com/c?utm_campaign=%7Bcampaignid%7D&utm_source=google&utm_medium=cpc
+https://example.com/untagged
